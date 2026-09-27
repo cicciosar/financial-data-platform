@@ -41,7 +41,7 @@ jobs:
               "lang": "EN",
               "freq": "A",
               "geo": "NL",
-              "sinceTimePeriod": "2015"
+              "time": "2024"
           }
 
           headers = {
@@ -57,12 +57,17 @@ jobs:
 
           response.raise_for_status()
 
+          data = response.json()
+
           output = Path("data/raw/nasa_10_f_bs.json")
           output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text(response.text, encoding="utf-8")
 
-          print(f"Saved dataset to {output}")
+          print(f"Dataset: {data.get('label')}")
+          print(f"Dimensions: {data.get('id')}")
+          print(f"Sizes: {data.get('size')}")
           print(f"HTTP status: {response.status_code}")
+          print(f"Saved dataset to {output}")
           print(f"Size: {output.stat().st_size:,} bytes")
           PY
 
