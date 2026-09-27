@@ -1,0 +1,81 @@
+name: Ingest Eurostat Financial Data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 0"
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Download Eurostat dataset
+        run: |
+          python - <<'PY'
+          import requests
+          from pathlib import Path
+
+          url = (
+              "https://ec.europa.eu/eurostat/api/dissemination/"
+              "statistics/1.0/data/nasa_10_f_bs"
+          )
+
+          params = {
+              "format": "JSON",
+              "lang": "EN",
+              "freq": "A",
+              "geo": "NL",
+              "sinceTimePeriod": "2015"
+          }
+
+          headers = {
+              "User-Agent": "financial-data-platform"
+          }
+
+          response = requests.get(
+              url,
+              params=params,
+              headers=headers,
+              timeout=60
+          )
+
+          response.raise_for_status()
+
+          output = Path("data/raw/nasa_10_f_bs.json")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(response.text, encoding="utf-8")
+
+          print(f"Saved dataset to {output}")
+          print(f"HTTP status: {response.status_code}")
+          print(f"Size: {output.stat().st_size:,} bytes")
+          PY
+
+      - name: Commit and push updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/raw/nasa_10_f_bs.json
+
+          if git diff --cached --quiet; then
+            echo "No changes detected."
+          else
+            git commit -m "Update Eurostat financial data"
+            git push
+          fi
