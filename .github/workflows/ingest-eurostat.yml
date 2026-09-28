@@ -25,50 +25,76 @@ jobs:
         run: |
           pip install requests
 
-      - name: Download Eurostat dataset
+      - name: Download Eurostat datasets
         run: |
           python - <<'PY'
           import requests
           from pathlib import Path
+          import time
 
-          url = (
+          BASE_URL = (
               "https://ec.europa.eu/eurostat/api/dissemination/"
               "statistics/1.0/data/nasa_10_f_bs"
           )
 
-          params = {
-              "format": "JSON",
-              "lang": "EN",
-              "freq": "A",
-              "geo": "NL",
-              "time": "2024"
-          }
+          COUNTRIES = ["NL", "DE", "FR", "IT", "ES"]
+          YEARS = list(range(2019, 2025))
 
           headers = {
               "User-Agent": "financial-data-platform"
           }
 
-          response = requests.get(
-              url,
-              params=params,
-              headers=headers,
-              timeout=60
-          )
+          total_files = 0
 
-          response.raise_for_status()
+          for country in COUNTRIES:
+              country_dir = Path(f"data/raw/nasa_10_f_bs/{country}")
+              country_dir.mkdir(parents=True, exist_ok=True)
 
-          data = response.json()
+              for year in YEARS:
+                  params = [
+                      ("format", "JSON"),
+                      ("lang", "EN"),
+                      ("freq", "A"),
+                      ("geo", country),
+                      ("time", str(year)),
+                  ]
 
-          output = Path("data/raw/nasa_10_f_bs.json")
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(response.text, encoding="utf-8")
+                  print(f"Downloading {country} - {year}...")
 
-          print(f"Dataset: {data.get('label')}")
-          print(f"Dimensions: {data.get('id')}")
-          print(f"Sizes: {data.get('size')}")
-          print(f"HTTP status: {response.status_code}")
-          print(f"Saved dataset to {output}")
-          print(f"Size: {output.stat().st_size:,} bytes")
+                  response = requests.get(
+                      BASE_URL,
+                      params=params,
+                      headers=headers,
+                      timeout=120
+                  )
+
+                  response.raise_for_status()
+
+                  data = response.json()
+
+                  output = country_dir / f"{year}.json"
+                  output.write_text(
+                      response.text,
+                      encoding="utf-8"
+                  )
+
+                  print(
+                      f"  Dataset: {data.get('label')}"
+                  )
+                  print(
+                      f"  HTTP status: {response.status_code}"
+                  )
+                  print(
+                      f"  Size: {output.stat().st_size:,} bytes"
+                  )
+
+                  total_files += 1
+
+                  # Small delay between API requests
+                  time.sleep(1)
+
+          print()
+          print(f"Total files downloaded: {total_files}")
           PY
 
       - name: Commit and push updated data
@@ -76,7 +102,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data/raw/nasa_10_f_bs.json
+          git add data/raw/nasa_10_f_bs/
 
           if git diff --cached --quiet; then
             echo "No changes detected."
