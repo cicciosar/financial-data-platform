@@ -25,12 +25,12 @@ jobs:
         run: |
           pip install requests
 
-      - name: Download Eurostat datasets
+      - name: Download latest Eurostat financial data
         run: |
           python - <<'PY'
           import requests
           from pathlib import Path
-          import time
+          from datetime import datetime
 
           BASE_URL = (
               "https://ec.europa.eu/eurostat/api/dissemination/"
@@ -38,19 +38,37 @@ jobs:
           )
 
           COUNTRIES = ["NL", "DE", "FR", "IT", "ES"]
-          YEARS = list(range(2019, 2025))
+
+          current_year = datetime.utcnow().year
+
+          # Try the current year and previous years.
+          # Keep the latest two years that actually contain observations.
+          candidate_years = [
+              current_year,
+              current_year - 1,
+              current_year - 2,
+          ]
 
           headers = {
               "User-Agent": "financial-data-platform"
           }
 
-          total_files = 0
+          downloaded = []
 
           for country in COUNTRIES:
-              country_dir = Path(f"data/raw/nasa_10_f_bs/{country}")
-              country_dir.mkdir(parents=True, exist_ok=True)
 
-              for year in YEARS:
+              country_dir = Path(
+                  f"data/raw/nasa_10_f_bs/{country}"
+              )
+              country_dir.mkdir(
+                  parents=True,
+                  exist_ok=True
+              )
+
+              available_years = []
+
+              for year in candidate_years:
+
                   params = [
                       ("format", "JSON"),
                       ("lang", "EN"),
@@ -59,7 +77,9 @@ jobs:
                       ("time", str(year)),
                   ]
 
-                  print(f"Downloading {country} - {year}...")
+                  print(
+                      f"Checking {country} - {year}..."
+                  )
 
                   response = requests.get(
                       BASE_URL,
@@ -72,29 +92,77 @@ jobs:
 
                   data = response.json()
 
-                  output = country_dir / f"{year}.json"
-                  output.write_text(
-                      response.text,
-                      encoding="utf-8"
-                  )
+                  values = data.get("value", {})
 
-                  print(
-                      f"  Dataset: {data.get('label')}"
-                  )
-                  print(
-                      f"  HTTP status: {response.status_code}"
-                  )
-                  print(
-                      f"  Size: {output.stat().st_size:,} bytes"
-                  )
+                  if values:
+                      available_years.append(year)
 
-                  total_files += 1
+                      output = (
+                          country_dir /
+                          f"{year}.json"
+                      )
 
-                  # Small delay between API requests
-                  time.sleep(1)
+                      output.write_text(
+                          response.text,
+                          encoding="utf-8"
+                      )
+
+                      print(
+                          f"  Available: {year}"
+                      )
+                      print(
+                          f"  Size: "
+                          f"{output.stat().st_size:,} bytes"
+                      )
+
+                  else:
+                      print(
+                          f"  No observations found for {year}"
+                      )
+
+              # Keep only the latest two available years
+              latest_two = sorted(
+                  available_years,
+                  reverse=True
+              )[:2]
+
+              # Remove older candidate files
+              for file in country_dir.glob("*.json"):
+                  try:
+                      file_year = int(file.stem)
+
+                      if file_year not in latest_two:
+                          file.unlink()
+                          print(
+                              f"  Removed old snapshot: "
+                              f"{file.name}"
+                          )
+
+                  except ValueError:
+                      pass
+
+              downloaded.extend(
+                  (country, year)
+                  for year in latest_two
+              )
+
+              print(
+                  f"{country}: latest available years = "
+                  f"{latest_two}"
+              )
 
           print()
-          print(f"Total files downloaded: {total_files}")
+          print("====================================")
+          print("Ingestion completed")
+          print("====================================")
+
+          for country, year in downloaded:
+              print(f"{country} - {year}")
+
+          print(
+              f"Total country-year snapshots: "
+              f"{len(downloaded)}"
+          )
           PY
 
       - name: Commit and push updated data
@@ -107,6 +175,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes detected."
           else
-            git commit -m "Update Eurostat financial data"
+            git commit -m "Update latest Eurostat financial data"
             git push
           fi
